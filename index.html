@@ -112,6 +112,10 @@ button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:p
 .reveal-anim{animation:rise .25s ease}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion: reduce){.reveal-anim{animation:none}}
+.codebox{width:100%;min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5;background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--ink);box-sizing:border-box;word-break:break-all;resize:vertical}
+.transfermsg{margin-top:12px;font-size:14px;font-weight:700}
+.transfermsg.ok{color:var(--ok)} .transfermsg.bad{color:var(--bad)}
+.footerbtns{margin-top:30px}
 .weaksec{margin-top:22px}
 .weaksec h3{font-family:"Alegreya Sans";font-weight:800;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 2px 8px}
 a{color:var(--accent)}
@@ -164,6 +168,7 @@ function render(){
   else if(view.name==="cards") renderCards();
   else if(view.name==="drill") renderDrill();
   else if(view.name==="weak") renderWeak();
+  else if(view.name==="transfer") renderTransfer();
 }
 function topbar(title, backTo, sub){
   return `<div class="topbar"><button class="back" data-a="back">&#8249; Vissza</button><h1>${esc(title)}</h1>${sub?`<span class="sub">${esc(sub)}</span>`:""}</div>`;
@@ -187,8 +192,45 @@ function renderHome(){
     h+=`</div></div>`;
   });
   h+=`<div class="legend"><span><span class="dot done"></span> kész</span><span><span class="dot part-done"></span> elkezdve</span><span><span class="dot weak"></span> gyenge pont</span><span>pöttyök: kifejtés · fogalmak · felsorolás</span></div>`;
+  h+=`<div class="footerbtns"><button class="btn ghost" data-a="transfer">Haladás átvitele másik eszközre</button></div>`;
   h+=`<div class="laurel">&#10086; &#10086; &#10086;</div>`;
   $app.innerHTML=h;
+}
+
+// ---- transfer (export/import) ----
+const CODE_PREFIX="RJGY1.";
+function exportCode(){ return CODE_PREFIX+btoa(unescape(encodeURIComponent(JSON.stringify(S)))); }
+function renderTransfer(msg,msgCls){
+  const counts=(st)=>Object.keys(st.essay).length+Object.keys(st.terms).length+Object.keys(st.drills).length;
+  let h=topbar("Haladás átvitele");
+  h+=`<div class="card"><div class="label">Erről az eszközről</div><p class="hint" style="margin-top:0">Ezen az eszközön ${counts(S)} elem haladása van mentve. Másold ki a kódot, és küldd át a másik eszközre (pl. üzenetben saját magadnak):</p><textarea class="codebox" id="exportbox" readonly>${exportCode()}</textarea><button class="btn primary" data-a="copycode">Kód másolása</button></div>`;
+  h+=`<div class="card"><div class="label">Erre az eszközre</div><p class="hint" style="margin-top:0">Illeszd be a másik eszközön kimásolt kódot. A betöltés összefésüli a két haladást (ütközésnél a beillesztett kód nyer, az itteni többi haladás megmarad):</p><textarea class="codebox" id="importbox" placeholder="RJGY1.…"></textarea><button class="btn ghost" data-a="doimport">Betöltés</button>`;
+  if(msg) h+=`<div class="transfermsg ${msgCls}">${msg}</div>`;
+  h+=`</div>`;
+  $app.innerHTML=h;
+}
+function doImport(){
+  const box=document.getElementById("importbox");
+  const code=(box&&box.value||"").trim();
+  if(!code.startsWith(CODE_PREFIX)){ renderTransfer("Ez nem érvényes kód — a kódnak „RJGY1.”-gyel kell kezdődnie.","bad"); return; }
+  let imp;
+  try{
+    imp=JSON.parse(decodeURIComponent(escape(atob(code.slice(CODE_PREFIX.length)))));
+    if(typeof imp!=="object"||!imp) throw 0;
+  }catch(e){ renderTransfer("A kód sérült vagy hiányos — másold ki újra az egészet.","bad"); return; }
+  let n=0;
+  ["essay","terms","drills"].forEach(k=>{
+    if(imp[k]&&typeof imp[k]==="object"){ n+=Object.keys(imp[k]).length; Object.assign(S[k]=S[k]||{},imp[k]); }
+  });
+  save();
+  renderTransfer(`Sikerült! ${n} elem betöltve és összefésülve.`,"ok");
+}
+async function copyCode(btn){
+  const code=exportCode();
+  let ok=false;
+  try{ await navigator.clipboard.writeText(code); ok=true; }catch(e){}
+  if(!ok){ const box=document.getElementById("exportbox"); if(box){ box.focus(); box.select(); box.setSelectionRange(0,code.length); try{ ok=document.execCommand("copy"); }catch(e){} } }
+  if(btn) btn.textContent = ok ? "Kimásolva ✓" : "Jelöld ki és másold kézzel";
 }
 
 function renderChapter(num){
@@ -308,7 +350,7 @@ document.addEventListener("click", ev=>{
   const b=ev.target.closest("[data-a]"); if(!b) return;
   const a=b.dataset.a;
   if(a==="back"){
-    if(view.name==="chapter"||view.name==="weak") go({name:"home"});
+    if(view.name==="chapter"||view.name==="weak"||view.name==="transfer") go({name:"home"});
     else if(sess&&sess.back) go(sess.back);
     else go({name:"home"});
   }
@@ -331,6 +373,9 @@ document.addEventListener("click", ev=>{
   else if(a==="weakessay"){ startEssay(weakItems().essay, {name:"weak"}); }
   else if(a==="weakcards"){ startCards(weakItems().terms, {name:"weak"}); }
   else if(a==="weakdrill"){ startDrill(weakItems().drills, {name:"weak"}); }
+  else if(a==="transfer") go({name:"transfer"});
+  else if(a==="copycode") copyCode(b);
+  else if(a==="doimport") doImport();
 });
 render();
 </script>
